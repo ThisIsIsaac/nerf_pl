@@ -105,19 +105,19 @@ class NeRF(nn.Module):
 
         xyz_ = input_xyz
         for i in range(self.D):
-            if i in self.skips:
+            if i in self.skips: #* not the standard skip connection. Instead of concatenating feature map, concatenate the input (3D coordinate)
                 xyz_ = torch.cat([input_xyz, xyz_], -1)
-            xyz_ = getattr(self, f"xyz_encoding_{i+1}")(xyz_)
+            xyz_ = getattr(self, f"xyz_encoding_{i+1}")(xyz_) #* these self.xyz_encoding_i methods are just i-th FC layers
 
-        sigma = self.sigma(xyz_)
+        sigma = self.sigma(xyz_) #* outputs sigma (density value). this layer does not produce 256-channel feature map since separate layers are used to output sigma and 256-channel feature map.
         if sigma_only:
             return sigma
 
-        xyz_encoding_final = self.xyz_encoding_final(xyz_)
+        xyz_encoding_final = self.xyz_encoding_final(xyz_) #* produce 256-channel feature map
 
-        dir_encoding_input = torch.cat([xyz_encoding_final, input_dir], -1)
+        dir_encoding_input = torch.cat([xyz_encoding_final, input_dir], -1) #* concatenate viewing direction
         dir_encoding = self.dir_encoding(dir_encoding_input)
-        rgb = self.rgb(dir_encoding)
+        rgb = self.rgb(dir_encoding) #* final layer that outputs RGB values
 
         out = torch.cat([rgb, sigma], -1)
 
