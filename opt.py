@@ -4,17 +4,16 @@ import os
 def get_opts():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--root_dir', type=str,
-                        default='/home/ubuntu/data/nerf_example_data/nerf_synthetic/lego',
+    parser.add_argument('--root_dir', type=str, required=True,
                         help='root directory of dataset')
     parser.add_argument('--log_dir', type=str,
-                        default='/data/root/logs/nerf',
+                        default='/data/private/logs/nerf',
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='blender',
-                        choices=['blender', 'llff'],
+                        choices=['blender', 'llff', "MB"],
                         help='which dataset to train/val')
 
-
+    parser.add_argument("--num_workers", default=4)
     parser.add_argument('--img_wh', nargs="+", type=int, default=[800, 800],
                         help='resolution (img_w, img_h) of the image')
 
@@ -30,7 +29,7 @@ def get_opts():
                         help='std dev of noise added to regularize sigma')
         
     parser.add_argument('--loss_type', type=str, default='mse',
-                        choices=['mse'],
+                        choices=['mse', "disp"],
                         help='loss to use')
 
     parser.add_argument('--batch_size', type=int, default=1024,

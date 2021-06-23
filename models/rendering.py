@@ -112,6 +112,9 @@ def render_rays(models,
                 depth_final: (N_rays) depth map
                 weights: (N_rays, N_samples_): weights of each sample
         """
+
+        import time
+        start_time = time.time()
         N_samples_ = xyz_.shape[1]
         # Embed directions
         xyz_ = xyz_.view(-1, 3) # (N_rays*N_samples_, 3)
@@ -171,7 +174,6 @@ def render_rays(models,
 
         return rgb_final, depth_final, weights
 
-
     # Extract models from lists
     model_coarse = models[0]
     embedding_xyz = embeddings[0]
@@ -186,14 +188,16 @@ def render_rays(models,
     dir_embedded = embedding_dir(rays_d) # (N_rays, embed_dir_channels)
 
     # Sample depth points
+    #* Depth min / max are [0, 1] and we sample "N_samples" many in the depth dimension
     z_steps = torch.linspace(0, 1, N_samples, device=rays.device) # (N_samples)
-    if not use_disp: # use linear sampling in depth space
+    if not use_disp: #* use linear sampling in depth space
         z_vals = near * (1-z_steps) + far * z_steps
-    else: # use linear sampling in disparity space
+    else:
         z_vals = 1/(1/near * (1-z_steps) + 1/far * z_steps)
 
     z_vals = z_vals.expand(N_rays, N_samples)
-    
+
+    #? what is perturb?
     if perturb > 0: # perturb sampling depths (z_vals)
         z_vals_mid = 0.5 * (z_vals[: ,:-1] + z_vals[: ,1:]) # (N_rays, N_samples-1) interval mid points
         # get intervals between samples

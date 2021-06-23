@@ -1,7 +1,12 @@
 import torch
 from kornia import create_meshgrid
+import numpy as np
+#! this function assumes the principle point in the center, but MB dataset doesn't.
+#! represent 2D pixel coordinate as homogenous 2D coordinate
+#! then multiply K inverse with the homogenous 2D coordinate (this will output 3D ray directions)
+#! rewrite this function to takein (focla length, principle direction) and output points in 3D camera coordinates
 
-
+#! can be rewritten in the most general form by taking in intrsic matricx (3x3) and
 def get_ray_directions(H, W, focal):
     """
     Get ray directions for all pixels in camera coordinate.
@@ -72,6 +77,7 @@ def get_ndc_rays(H, W, focal, near, rays_o, rays_d):
         rays_d: (N_rays, 3), the direction of the rays in NDC
     """
     # Shift ray origins to near plane
+
     t = -(near + rays_o[...,2]) / rays_d[...,2]
     rays_o = rays_o + t[...,None] * rays_d
 
@@ -80,6 +86,8 @@ def get_ndc_rays(H, W, focal, near, rays_o, rays_d):
     oy_oz = rays_o[...,1] / rays_o[...,2]
     
     # Projection
+    if type(focal) is np.ndarray:
+        focal = torch.from_numpy(focal)
     o0 = -1./(W/(2.*focal)) * ox_oz
     o1 = -1./(H/(2.*focal)) * oy_oz
     o2 = 1. + 2. * near / rays_o[...,2]

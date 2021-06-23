@@ -5,8 +5,44 @@ import numpy as np
 import os
 from PIL import Image
 from torchvision import transforms as T
+import time
+from ray_utils import *
+# from high_res_stereo.utils.preprocess import get_transform
+import cv2
+import skimage.io
+from rich import print
+from rich import pretty
+pretty.install()
+from rich import traceback
+traceback.install()
 
-from .ray_utils import *
+class toTensorLegacy(object):
+    def __call__(self, pic):
+        """
+        Args:
+            pic (PIL or numpy.ndarray): Image to be converted to tensor
+
+        Returns:
+            Tensor: Converted image.
+        """
+        if isinstance( pic, np.ndarray ):
+                # This is what TorchVision 0.2.0 returns for transforms.toTensor() for np.ndarray
+        	return torch.from_numpy( pic.transpose((2, 0, 1))).float().div(255)
+        if isinstance(pic, torch.Tensor):
+            return pic
+        else:
+                return transforms.to_tensor( pic )
+    def __repr__(self):
+        return self.__class__.__name__ + '()'
+
+def get_transform():
+    __imagenet_stats = {'mean': [0.485, 0.456, 0.406],
+                        'std': [0.229, 0.224, 0.225]}
+    t_list = [
+        toTensorLegacy(),
+        T.Normalize(**__imagenet_stats),
+    ]
+    return T.Compose(t_list)
 
 
 def normalize(v):
@@ -157,7 +193,8 @@ def create_spheric_poses(radius, n_poses=120):
 
 
 class LLFFDataset(Dataset):
-    def __init__(self, root_dir, split='train', img_wh=(504, 378), spheric_poses=False, val_num=1):
+    def __init__(self, root_dir, split='train', img_wh=(504, 378), spheric_poses=False, val_num=1 ,feature_extractor=None,
+                 process_img=(lambda x:x)): #, hsm_testres = 3.3):
         """
         spheric_poses: whether the images are taken in a spheric inward-facing manner
                        default: False (forward-facing)
@@ -170,14 +207,68 @@ class LLFFDataset(Dataset):
         self.val_num = max(1, val_num) # at least 1
         self.define_transforms()
 
+        self.counter=0
         self.read_meta()
         self.white_back = False
+        self.feature_extractor = feature_extractor
+        self.process_img = process_img
+
+        # if use_hsm and cost_volume_path != None:
+        #     self.use_hsm = use_hsm
+        #     self.cost_volume = torch.load(cost_volume_path)
+
+        #     self.processed = get_transform()
+        #     self.hsm_testres = hsm_testres
+
+    def preprocess_img(self, img):
+        imagenet_normalize = T.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+
+        if self.split == "train":
+            preprocess = T.Compose([
+                    T.RandomResizedCrop(224),
+                    T.RandomHorizontalFlip(),
+                    T.ToTensor(),
+                    imagenet_normalize,
+                ])
+
+        else:
+            preprocess = T.Compose([
+                T.Resize(256),
+                T.CenterCrop(224),
+                T.ToTensor(),
+                imagenet_normalize,
+            ])
+
+        img = preprocess(img)
+
+        return img
+
+    def extract_feature(self, img_path):
+        img = Image.open(img_path).convert("RGB")
+        img = self.preprocess_img(img)
+        self.feature_extractor.eval()
+        with torch.no_grad():
+            feature = self.feature_extractor(img)
+        return feature
+
 
     def read_meta(self):
+
+        #! delete me
         poses_bounds = np.load(os.path.join(self.root_dir,
-                                            'poses_bounds.npy')) # (N_images, 17)
-        self.image_paths = sorted(glob.glob(os.path.join(self.root_dir, 'images/*')))
+                                            'poses_bounds.npy'))[:2]  # (N_images, 17)
+        #! delete me
+        self.image_paths = sorted(glob.glob(os.path.join(self.root_dir, 'images/*')))[:2]
+
+        #! uncomment me
+        # poses_bounds = np.load(os.path.join(self.root_dir,
+        #                                     'poses_bounds.npy')) # (N_images, 17)
+
+        #! uncomment me
+        # self.image_paths = sorted(glob.glob(os.path.join(self.root_dir, 'images/*')))
                         # load full resolution image then resize
+
         if self.split in ['train', 'val']:
             assert len(poses_bounds) == len(self.image_paths), \
                 'Mismatch between number of images and number of poses! Please rerun COLMAP!'
@@ -218,9 +309,10 @@ class LLFFDataset(Dataset):
                                   # use first N_images-1 to train, the LAST is val
             self.all_rays = []
             self.all_rgbs = []
+            # self.train_img_paths = []
             for i, image_path in enumerate(self.image_paths):
-                if i == val_idx: # exclude the val image
-                    continue
+                # if i == val_idx: # exclude the val image
+                #     continue
                 c2w = torch.FloatTensor(self.poses[i])
 
                 img = Image.open(image_path).convert('RGB')
@@ -251,11 +343,13 @@ class LLFFDataset(Dataset):
                                  
             self.all_rays = torch.cat(self.all_rays, 0) # ((N_images-1)*h*w, 8)
             self.all_rgbs = torch.cat(self.all_rgbs, 0) # ((N_images-1)*h*w, 3)
+            # self.train_img_paths.append(image_path)
         
         elif self.split == 'val':
             print('val image is', self.image_paths[val_idx])
             self.c2w_val = self.poses[val_idx]
             self.image_path_val = self.image_paths[val_idx]
+
 
         else: # for testing, create a parametric rendering path
             if self.split.endswith('train'): # test on training set
@@ -267,9 +361,9 @@ class LLFFDataset(Dataset):
                 radii = np.percentile(np.abs(self.poses[..., 3]), 90, axis=0)
                 self.poses_test = create_spiral_poses(radii, focus_depth)
             else:
-                radius = 1.1 * self.bounds.min()
+                radius = 1.1 * self.bouㄴnds.min()
                 self.poses_test = create_spheric_poses(radius)
-
+        # print("duration = " + str(time.time() - start_time))
     def define_transforms(self):
         self.transform = T.ToTensor()
 
@@ -284,6 +378,8 @@ class LLFFDataset(Dataset):
         if self.split == 'train': # use data in the buffers
             sample = {'rays': self.all_rays[idx],
                       'rgbs': self.all_rgbs[idx]}
+
+            return sample
 
         else:
             if self.split == 'val':
