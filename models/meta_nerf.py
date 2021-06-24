@@ -1,7 +1,22 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models as models
 
+class WeightGenerator(nn.Module):
+    def __init__(self):
+        """Load the pretrained ResNet-152 and replace top fc layer."""
+        # source: https://github.com/yunjey/pytorch-tutorial/blob/0500d3df5a2a8080ccfccbc00aca0eacc21818db/tutorials/03-advanced/image_captioning/model.py#L9
+        super(WeightGenerator, self).__init__()
+        resnet = models.resnet152(pretrained=True)
+        modules = list(resnet.children())[:-1]      # delete the last fc layer.
+        self.resnet = nn.Sequential(*modules)
+
+    def forward(self, images):
+        """Extract feature vectors from input images."""
+        # source: https://github.com/yunjey/pytorch-tutorial/blob/0500d3df5a2a8080ccfccbc00aca0eacc21818db/tutorials/03-advanced/image_captioning/model.py#L18
+        with torch.no_grad():
+            features = self.resnet(images)
 
 class PositionalEncoding(nn.Module):
     """
